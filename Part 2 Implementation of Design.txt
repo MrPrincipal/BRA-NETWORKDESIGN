@@ -1,0 +1,490 @@
+Part 2 Implementation of Design 
+
+==========================================
+
+
+1. Basic settings to all devices + SSH + Standard ACL for SSH.
+
+Basic Settings: Configure fundamental device settings, including hostnames, and console passwords, enable passwords, banner messages, password encryption, and disable IP domain lookup.
+password : cisco 
+
+username : scovia
+
+HR Switch 
+
+en 
+conf t 
+hostname BR_IT_SW
+line console 0 
+password cisco 
+login 
+exec-timeout 3 0
+exit 
+
+
+enable password cisco 
+banner motd #Authorized Users Only#
+no ip domain-lookup 
+service password-encryption 
+
+Configure SSH 
+-----------------------
+
+username scovia password cisco 
+ip domain-name cisco.com 
+crypto key generate rsa general-keys modulus 1024
+ip ssh version 2 
+
+access-list 2 permit 192.168.10.0 0.0.0.255
+access-list 2 deny any
+
+line vty 0 15 
+login local 
+transport input ssh 
+access-class 2 in 
+exit 
+do wr 
+
+
+2. VLAN assignment plus all access and trunk ports on 12 and 13 switches
+======================================================================
+
+en 
+conf t 
+vlan 60
+name BLAN
+vlan 90
+name BWLAN 
+vlan 199
+name BLACKHOLE
+ex 
+
+
+int range fa0/1-2
+switchport mode trunk
+int range fa0/3-20
+switchport mode access 
+switchport access vlan 60
+int range fa0/21-24 
+switchport mode access 
+switchport access vlan 90
+int range gig0/1-2
+switchport mode access 
+switchport access vlan 199
+do wr
+
+
+
+
+int range gig1/0/2-5
+switchport mode trunk 
+exit 
+
+int gig1/0/9
+switchport mode access 
+switchport access vlan 50
+ex 
+do wr
+
+ 2.1. STP Portfast and BPDUguard configs on all access ports.
+=============================================================
+
+int range fa0/3-24
+spanning-tree portfast
+spanning-tree bpduguard enable
+do wr
+
+3. EtherChannel using LACP 
+===============================================================
+
+int range gig1/0/21-22
+channel-group 2 mode active
+ex 
+interface Port-channel 2
+switchport mode trunk 
+ex
+do wr 
+
+
+check etherchannel 
+-----------------------------------------
+
+sh etherchannel port-channel
+
+
+4. Subnetting and IP Addressing (Goes with assigning ip addresses to interfaces 
+-------------------------------------------------------------------
+
+ip routing 
+int gig1/0/1
+no switchport 
+ip add 10.20.20.45 255.255.255.252 
+no shut 
+do wr
+
+
+int gig0/2
+ip add 205.200.100.1 255.255.255.252 
+no shut 
+do wr
+
+
+Configuring IP Addresses to firewall
+----------------------------------------------------------------------
+
+
+en 
+conf t
+
+int gig1/1
+no shut 
+nameif INSIDE1 
+security-level 100 
+ip add 10.20.20.34 255.255.255.252
+
+
+7. HSRP and Inter-VLAN routing on the 13 switches plus ip dhcp helper addresses.
+=================================================================
+
+This is for Headquarter MLSW
+----------------------------------------
+
+int vlan 10 
+ip add 192.168.10.2 255.255.255.0 
+ip helper-address 10.20.20.5 
+ip helper-address 10.20.20.6 
+
+standby 10 ip 192.168.10.1
+
+int vlan 20
+ip add 172.16.0.2 255.255.0.0 
+standby 20 ip 172.16.0.1
+ip helper-address 10.20.20.5 
+ip helper-address 10.20.20.6 
+
+int vlan 50
+ip add 10.10.0.2 255.255.0.0 
+ip helper-address 10.20.20.5 
+ip helper-address 10.20.20.6 
+standby 50 ip 10.10.0.1
+
+ex 
+do wr
+
+
+sh standby brief 
+
+
+
+This is for Branch MLSW
+-----------------------------------------------
+
+
+int vlan 60
+ip add 172.17.0.2 255.255.0.0 
+standby 60 ip 172.17.0.1
+ip helper-address 10.20.20.5 
+ip helper-address 10.20.20.6 
+
+int vlan 90
+ip add 10.11.0.2 255.255.0.0 
+ip helper-address 10.20.20.5 
+ip helper-address 10.20.20.6 
+standby 90 ip 10.11.0.1
+
+
+8. OSPF on the firewall, routers and switches.
+=================================================================
+HQ-MLSW-1 
+
+router ospf 15
+router-id 2.1.2.1 
+network 10.20.20.32 0.0.0.3 area 0 
+network 192.168.10.0 0.0.0.255 area 0 
+network 172.16.0.0 0.0.255.255 area 0 
+network 10.10.0.0 0.0.255.255 area 0 
+ex 
+do wr 
+
+HQ-MLSW-2
+
+router ospf 15
+router-id 3.1.3.1 
+network 10.20.20.36 0.0.0.3 area 0 
+network 192.168.10.0 0.0.0.255 area 0 
+network 172.16.0.0 0.0.255.255 area 0 
+network 10.10.0.0 0.0.255.255 area 0 
+ex 
+do wr 
+
+---------------------------------------------------------------------
+BR-MLSW-1 
+
+router ospf 15
+router-id 4.1.4.1 
+network 10.20.20.40 0.0.0.3 area 0 
+network 172.17.0.0 0.0.255.255 area 0 
+network 10.11.0.0 0.0.255.255 area 0 
+ex 
+do wr 
+
+BR-MLSW-2
+
+router ospf 15
+router-id 5.1.5.1 
+network 10.20.20.44 0.0.0.3 area 0 
+network 172.17.0.0 0.0.255.255 area 0 
+network 10.11.0.0 0.0.255.255 area 0 
+ex 
+do wr 
+
+
+ OSPF Conf On ROUTERS
+==================================================================
+
+ISP-HQ 
+
+router ospf 15 
+router-id 7.1.7.1 
+network 105.100.50.0 0.0.0.3 area 0 
+network 20.20.20.0 0.0.0.3 area 0 
+DO WR
+
+router ospf 15 
+router-id 8.1.8.1 
+network 30.30.30.0 0.0.0.3 area 0 
+network 20.20.20.0 0.0.0.3 area 0 
+
+
+router ospf 15 
+router-id 9.1.9.1 
+network 30.30.30.0 0.0.0.3 area 0 
+network 205.200.100.0 0.0.0.3 area 0 
+do wr
+
+OSPF Conf On FIREWALL
+===================================================================
+
+router ospf 15 
+router-id 3.2.3.2
+network 10.20.20.0 255.255.255.224 area 0 
+network 10.20.20.32 255.255.255.252 area 0 
+network 10.20.20.36 255.255.255.252 area 0 
+network 105.100.50.0 255.255.255.252 area 0 
+wr mem
+
+
+router ospf 15 
+router-id 4.2.4.2
+network 205.200.100.0 255.255.255.252 area 0 
+network 10.20.20.40 255.255.255.252 area 0 
+network 10.20.20.44 255.255.255.252 area 0 
+wr mem
+
+
+DEFAUL ROUTE ON FIREWALL 
+-========================================
+route OUTSIDE 0.0.0.0 0.0.0.0 205.200.100.1
+
+
+9. Firewall interface security zones and levels  (Done)
+========================================================================
+
+
+
+NATTING
+-----------------------------------------------
+object network INDIDE2-OUTSIDE 
+subnet 172.17.0.0 255.255.0.0 
+nat (INSIDE1,OUTSIDE) dynamic interface
+ex
+conf t
+object network INDIDE2b-OUTSIDE 
+subnet 172.17.0.0 255.255.0.0 
+nat (INSIDE2,OUTSIDE) dynamic interface
+
+
+object network INDIDE3-OUTSIDE 
+subnet 10.11.0.0 255.255.0.0 
+nat (INSIDE1,OUTSIDE) dynamic interface
+ex
+conf t
+object network INDIDE3b-OUTSIDE 
+subnet 10.11.0.0 255.255.0.0 
+nat (INSIDE2,OUTSIDE) dynamic interface
+
+
+10. Firewall inspection policy configuration
+====================================================
+
+access-list RES-ACCESS extended permit icmp any any
+access-list RES-ACCESS extended permit udp  any any eq 67
+access-list RES-ACCESS extended permit udp  any any eq 68
+access-list RES-ACCESS extended permit udp  any any eq 53
+access-list RES-ACCESS extended permit tcp  any any eq 53
+access-list RES-ACCESS extended permit tcp  any any eq 80
+access-list RES-ACCESS extended permit tcp  any any eq 25
+access-list RES-ACCESS extended permit tcp  any any eq 20
+access-list RES-ACCESS extended permit tcp  any any eq 21
+
+access-list RES-ACCESS extended permit udp  any any eq 5247
+access-list RES-ACCESS extended permit udp  any any eq 5246
+access-list RES-ACCESS extended permit udp  any any eq 12222
+access-list RES-ACCESS extended permit udp  any any eq 12223
+
+access-list RES-ACCESS extended permit tcp  any any eq 443
+
+access-list RES-ACCESS extended permit tcp  any any eq 49
+
+
+wr mem
+
+BINDING TO INTERFACES 
+------------------------------------
+
+access-group RES-ACCESS in interface DMZ
+
+
+access-list RES-ACCESS extended permit icmp any any
+access-list RES-ACCESS extended permit udp  any any eq 67
+access-list RES-ACCESS extended permit udp  any any eq 68
+access-list RES-ACCESS extended permit udp  any any eq 53
+access-list RES-ACCESS extended permit tcp  any any eq 53
+access-list RES-ACCESS extended permit tcp  any any eq 80
+access-list RES-ACCESS extended permit tcp  any any eq 25
+access-list RES-ACCESS extended permit tcp  any any eq 20
+access-list RES-ACCESS extended permit tcp  any any eq 21
+wr mem
+
+BINDING TO INTERFACES 
+------------------------------------
+
+access-group RES-ACCESS in interface OUTSIDE
+
+
+
+
+ router ospf 15
+ router-id 3.2.4.1
+ network 105.100.50.0 255.255.255.252 area 0
+ network 10.20.20.0 255.255.255.224 area 0
+ network 10.20.20.32 255.255.255.252 area 0
+ network 10.20.20.36 255.255.255.252 area 0
+
+
+
+=====================IP SEC Configuration==================
+
+
+HQ BRANCH FIREWALL
+
+crypto ikev1 policy 10
+hash sha 
+authentication pre-share
+group 2
+lifetime 86400
+encryption 3des 
+exit
+tunnel-group 205.200.100.2 type ipsec-l2l 
+tunnel-group 205.200.100.2 ipsec-attributes 
+ikev1 pre-shared-key cisco
+crypto ipsec ikev1 transform-set TSET esp-3des esp-sha-hmac
+
+
+access-list VPN-ACL extended permit ip 172.17.0.0 255.255.0.0 192.168.10.0 255.255.255.0
+access-list VPN-ACL extended permit ip 10.11.0.0 255.255.0.0 192.168.10.0 255.255.255.0
+access-list VPN-ACL extended permit ip 172.17.0.0 255.255.0.0 172.16.0.0 255.255.0.0
+access-list VPN-ACL extended permit ip 10.11.0.0 255.255.0.0 172.16.0.0 255.255.0.0
+access-list VPN-ACL extended permit ip 172.17.0.0 255.255.0.0 10.10.0.0 255.255.0.0
+access-list VPN-ACL extended permit ip 10.11.0.0 255.255.0.0 10.10.0.0 255.255.0.0
+access-list VPN-ACL extended permit ip 172.17.0.0 255.255.0.0 10.20.20.0 255.255.255.224
+access-list VPN-ACL extended permit ip 10.11.0.0 255.255.0.0 10.20.20.0 255.255.255.224
+access-list VPN-ACL extended permit ip 192.168.10.0 255.255.255.0 172.17.0.0 255.255.0.0
+access-list VPN-ACL extended permit ip 192.168.10.0 255.255.255.0 10.11.0.0 255.255.0.0
+access-list VPN-ACL extended permit ip 172.16.0.0 255.255.0.0 172.17.0.0 255.255.0.0
+access-list VPN-ACL extended permit ip 172.16.0.0 255.255.0.0 10.11.0.0 255.255.0.0
+access-list VPN-ACL extended permit ip 10.10.0.0 255.255.0.0 172.17.0.0 255.255.0.0
+access-list VPN-ACL extended permit ip 10.10.0.0 255.255.0.0 10.11.0.0 255.255.0.0
+
+crypto map CMAP 10 set peer 205.200.100.2
+crypto map CMAP 10 set ikev1 transform-set TSET
+CRypto Map CMAP 10 Match ADDress VPN-ACL
+CRypto map CMAP INterface OUTSIDE
+CRypto IKev1 ENable OUTSIDE
+
+wr mem
+
+
+
+
+
+BRANCHES FIREWALL 
+
+crypto ikev1 policy 10
+hash sha 
+authentication pre-share
+group 2
+lifetime 86400
+encryption 3des 
+exit
+tunnel-group 105.100.50.2 type ipsec-l2l 
+tunnel-group 105.100.50.2 ipsec-attributes 
+ikev1 pre-shared-key cisco
+crypto ipsec ikev1 transform-set TSET esp-3des esp-sha-hmac
+
+
+access-list VPN-ACL extended permit ip 172.17.0.0 255.255.0.0 192.168.10.0 255.255.255.0
+access-list VPN-ACL extended permit ip 10.11.0.0 255.255.0.0 192.168.10.0 255.255.255.0
+access-list VPN-ACL extended permit ip 172.17.0.0 255.255.0.0 172.16.0.0 255.255.0.0
+access-list VPN-ACL extended permit ip 10.11.0.0 255.255.0.0 172.16.0.0 255.255.0.0
+access-list VPN-ACL extended permit ip 172.17.0.0 255.255.0.0 10.10.0.0 255.255.0.0
+access-list VPN-ACL extended permit ip 10.11.0.0 255.255.0.0 10.10.0.0 255.255.0.0
+access-list VPN-ACL extended permit ip 172.17.0.0 255.255.0.0 10.20.20.0 255.255.255.224
+access-list VPN-ACL extended permit ip 10.11.0.0 255.255.0.0 10.20.20.0 255.255.255.224
+
+crypto map CMAP 10 set peer 105.100.50.2
+crypto map CMAP 10 set ikev1 transform-set TSET
+CRypto Map CMAP 10 Match ADDress VPN-ACL
+CRypto map CMAP INterface OUTSIDE
+CRypto IKev1 ENable OUTSIDE
+
+wr mem
+
+FIREWALL COMMANDS
+==================================================
+sh crypto ipsec sa
+
+sh crypto isakmp sa
+
+
+
+
+
+
+Configuring TACAS +
+
+aaa new-model 
+aaa authentication login SSH-LOGIN group tacacs+
+transport input ssh
+login authentication SSH-LOGIN
+
+
+
+configure terminal
+aaa new-model
+aaa authentication login default group tacacs+ local
+aaa authorization exec default group tacacs+ local
+!
+
+# Add your TACACS+ server details:
+tacas-server host ---ip-----
+tacas-server key  ---key----
+
+
+line con 0
+ login authentication default
+
+
+
+
+
